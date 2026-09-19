@@ -1,0 +1,26 @@
+import json
+import logging
+from remediate import lambda_handler
+
+# Configure local streaming logs to your console window
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+if __name__ == "__main__":
+    print("🧪 Initiating Local SOAR Remediation Event Simulation...\n")
+    
+    # 1. Load the mock configuration drift artifact from disk
+    try:
+        with open("event.json", "r") as payload_file:
+            mock_event = json.load(payload_file)
+            print("📬 [Loaded] Successfully read mock network security event profile.")
+    except FileNotFoundError:
+        print("❌ [Error] Could not find event.json in the current working directory.")
+        exit(1)
+        
+    # 2. Feed the event profile directly into your serverless automation handler
+    print("\n⚡ Triggering SOAR Playbook execution chain...")
+    execution_result = lambda_handler(mock_event, None)
+    
+    # 3. Print the final automation results summary
+    print("\n🏁 Playbook Run Terminal Output Summary:")
+    print(json.dumps(execution_result, indent=2))
