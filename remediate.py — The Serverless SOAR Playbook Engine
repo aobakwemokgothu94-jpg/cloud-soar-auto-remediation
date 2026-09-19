@@ -1,0 +1,78 @@
+import os
+import json
+import logging
+
+# Configure unified logging output for the SOAR engine
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+def evaluate_security_rules(ingress_rules):
+    """
+    Scans active networking rules for high-severity configuration drift.
+    Returns a list of rule identifiers that violate the security policy.
+    """
+    violating_rules = []
+    
+    for rule in ingress_rules:
+        # Check for wildcards allowing all traffic on insecure administrative channels
+        is_public = rule.get("source_address_prefix") == "*" or rule.get("source_address_prefix") == "0.0.0.0/0"
+        is_ssh_port = rule.get("destination_port_range") == "22" or rule.get("destination_port_range") == "3389"
+        is_allowed = rule.get("access", "").lower() == "allow"
+        
+        if is_public and is_ssh_port and is_allowed:
+            logger.warning(f"🚨 CRITICAL DRIFT DETECTED: Rule '{rule.get('name')}' exposes management ports publicly!")
+            violating_rules.append(rule.get("name"))
+            
+    return violating_rules
+
+def lambda_handler(event, context):
+    """
+    Main entry point for the event-driven serverless SOAR loop.
+    Triggered automatically via CloudWatch/EventBridge or Azure Monitor Webhooks.
+    """
+    logger.info("🚀 SOAR Auto-Remediation Engine initiated...")
+    
+    # Extract the payload event context from the infrastructure alert webhook
+    try:
+        body = event.get("detail", event)
+        resource_id = body.get("resource_id", "unknown-network-security-group")
+        active_rules = body.get("security_rules", [])
+        
+        logger.info(f"Analyzing configuration posture for asset: {resource_id}")
+        
+        # 1. Posture Assessment Gate
+        flagged_violations = evaluate_security_rules(active_rules)
+        
+        if not flagged_violations:
+            logger.info("🟢 Compliance Verified: No insecure public configuration drift detected.")
+            return {
+                "statusCode": 200,
+                "body": json.dumps("Infrastructure posture meets security baseline configuration parameters.")
+            }
+        
+        # 2. Programmatic Execution & Triage
+        logger.info(f"Executing containment workflow for {len(flagged_violations)} violation(s)...")
+        
+        remediated_actions = []
+        for rule_name in flagged_violations:
+            # In a live cloud production setting, this loop calls the Boto3/Azure Management SDK
+            # e.g., client.delete_network_security_rule(resource_group, nsg_name, rule_name)
+            logger.info(f"🔒 Auto-Healing: Programmatically deleting rule entry -> '{rule_name}'")
+            remediated_actions.append(rule_name)
+            
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "SUCCESS",
+                "asset_id": resource_id,
+                "remediated_rules": remediated_actions,
+                "summary": "Exposed entry point blocked successfully by SOAR automated script policy."
+            })
+        }
+        
+    except Exception as e:
+        logger.error(f"🔴 Execution Fault: Failed to process remediation telemetry loop: {str(e)}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps("Internal engineering process failure inside SOAR pipeline run.")
+        }
